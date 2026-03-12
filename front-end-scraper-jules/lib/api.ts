@@ -1,4 +1,4 @@
-﻿import { getClientId } from "@/lib/client-id"
+import { generateClientSafeId, getClientId } from "@/lib/client-id"
 
 export type LeadTemperature = "HOT" | "WARM" | "COLD"
 
@@ -52,7 +52,7 @@ function normalizeTemperature(value: string): LeadTemperature {
 
 function normalizeLead(lead: Partial<Lead>): Lead {
   return {
-    id: String(lead.id ?? crypto.randomUUID()),
+    id: String(lead.id ?? generateClientSafeId()),
     title: lead.title ?? "Lead sem titulo",
     price: lead.price ?? "R$ 0",
     temperature: normalizeTemperature(String(lead.temperature ?? "COLD")),

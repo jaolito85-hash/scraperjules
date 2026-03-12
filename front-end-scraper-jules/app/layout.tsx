@@ -5,6 +5,7 @@ import './globals.css'
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+const showAnalytics = process.env.NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS === "true"
 
 export const metadata: Metadata = {
   title: 'Arbitragem AI — CRM de Oportunidades',
@@ -38,7 +39,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
         {children}
-        <Analytics />
+        {showAnalytics ? <Analytics /> : null}
       </body>
     </html>
   )
