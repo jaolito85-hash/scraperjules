@@ -10,7 +10,7 @@ from app.services.apify_service import (
     run_apify_search,
 )
 from app.services.mock_leads import build_mock_leads
-from app.services.openai_service import analyze_search_intent, enrich_and_rank_leads
+from app.services.openai_service import analyze_search_intent, enrich_and_rank_leads, resolve_pipeline_category
 
 
 def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
@@ -18,6 +18,7 @@ def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
         return build_mock_leads(search_term)[:limit]
 
     intent = analyze_search_intent(search_term, category)
+    pipeline_category = resolve_pipeline_category(intent)
     queries = [intent.primary_query, *intent.alternate_queries]
     collected: list[dict[str, Any]] = []
     last_error: Exception | None = None
@@ -25,7 +26,7 @@ def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
     for query in _dedupe_queries(queries, fallback=search_term):
         remaining = max(limit - len(collected), 1)
         try:
-            results = run_apify_search(query, category, remaining)
+            results = run_apify_search(query, pipeline_category, remaining)
         except (ApifyConfigurationError, ApifyRunFailedError, ApifyTimeoutError) as exc:
             last_error = exc
             continue
@@ -43,7 +44,7 @@ def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
         collected[:limit],
         intent,
         original_search_term=search_term,
-        category=category,
+        category=pipeline_category,
     )
 
 

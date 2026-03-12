@@ -6,6 +6,7 @@
 - Banco e persistencia no Supabase.
 - Busca real executada por Actors do Apify em pipeline por categoria.
 - OpenAI opcional como camada de inteligencia para interpretar a busca e melhorar reasons/ranking.
+- O backend agora aceita busca livre por intencao e roteia internamente para a vertical correta.
 
 ## Supabase
 1. Crie um projeto no Supabase.
@@ -44,6 +45,8 @@
   - `APIFY_ACTOR_ID_REAL_ESTATE_PRIMARY=viralanalyzer/brazil-real-estate-scraper`
   - `APIFY_ACTOR_ID_REAL_ESTATE_SECONDARY=fatihtahta/zap-imoveis-scraper`
   - `APIFY_ACTOR_ID_MARKETPLACE=apify/facebook-marketplace-scraper`
+  - `APIFY_ACTOR_ID_PRODUCT_MARKETPLACE=apify/facebook-marketplace-scraper`
+  - `APIFY_ACTOR_ID_SERVICE_DEMAND=apify/google-search-scraper`
 
 ## Frontend no Coolify
 - Tipo: Dockerfile ou Node.
@@ -53,11 +56,14 @@
 - Start: `npm run start`
 
 ## Fluxo Apify
-- `POST /leads/search` escolhe uma pipeline por categoria.
+- `POST /leads/search` primeiro interpreta a busca livre e monta um schema estruturado com `vertical`, `goal`, `entity`, `brand`, `model`, `year`, `location`, `attributes` e `sort`.
 - Antes da busca, o backend pode usar OpenAI para interpretar a intencao do usuario e gerar uma query principal com ate duas variacoes.
-- `b2b_services`: Google Places -> enriquecimento opcional de contato -> fallback Google Search.
-- `automotive`: Webmotors -> OLX carros -> Marketplace opcional -> fallback Google Search.
-- `real_estate`: scraper imobiliario Brasil -> Zap Imoveis -> Marketplace opcional -> fallback Google Search.
+- O roteamento interno usa estas verticais:
+  - `business_local` -> Google Places -> enriquecimento -> fallback Google Search
+  - `vehicle` -> Webmotors -> OLX carros -> Marketplace -> fallback Google Search
+  - `real_estate` -> scraper imobiliario -> Zap Imoveis -> Marketplace -> fallback Google Search
+  - `product` -> Marketplace -> fallback Google Search
+  - `service_demand` -> Google Search por sinais de demanda -> fallback Google Search
 - Cada actor roda com polling ate concluir.
 - O dataset retornado e normalizado para o schema da UI: `id`, `title`, `price`, `temperature`, `reason`, `phone`, `email`, `seller_name`, `link`.
 - Depois da coleta, o backend aplica ranking leve e melhora o `reason`.

@@ -98,6 +98,14 @@ CATEGORY_PIPELINES: dict[str, list[ActorCandidate]] = {
         ActorCandidate("marketplace", "APIFY_ACTOR_ID_MARKETPLACE", "apify/facebook-marketplace-scraper", "marketplace", optional=True),
         ActorCandidate("fallback", "APIFY_ACTOR_ID_FALLBACK", "apify/google-search-scraper", "generic_query"),
     ],
+    "product": [
+        ActorCandidate("product_marketplace", "APIFY_ACTOR_ID_PRODUCT_MARKETPLACE", "apify/facebook-marketplace-scraper", "marketplace", optional=True),
+        ActorCandidate("fallback", "APIFY_ACTOR_ID_FALLBACK", "apify/google-search-scraper", "generic_query"),
+    ],
+    "service_demand": [
+        ActorCandidate("service_demand_search", "APIFY_ACTOR_ID_SERVICE_DEMAND", "apify/google-search-scraper", "generic_query"),
+        ActorCandidate("fallback", "APIFY_ACTOR_ID_FALLBACK", "apify/google-search-scraper", "generic_query"),
+    ],
 }
 
 LEGACY_CATEGORY_ENV_KEYS = {
