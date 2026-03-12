@@ -5,6 +5,7 @@
 - Backend FastAPI em outro servico no Coolify.
 - Banco e persistencia no Supabase.
 - Busca real executada por Actors do Apify em pipeline por categoria.
+- OpenAI opcional como camada de inteligencia para interpretar a busca e melhorar reasons/ranking.
 
 ## Supabase
 1. Crie um projeto no Supabase.
@@ -28,6 +29,9 @@
   - `DEFAULT_USER_CREDITS=100`
   - `REVEAL_COST=30`
 - Variaveis opcionais:
+  - `OPENAI_ENABLED=false`
+  - `OPENAI_API_KEY=...`
+  - `OPENAI_MODEL=gpt-4.1-mini`
   - `APIFY_TIMEOUT_SECONDS=120`
   - `APIFY_POLL_INTERVAL=3`
   - `APIFY_OLX_DEFAULT_STATE=SP`
@@ -50,11 +54,14 @@
 
 ## Fluxo Apify
 - `POST /leads/search` escolhe uma pipeline por categoria.
+- Antes da busca, o backend pode usar OpenAI para interpretar a intencao do usuario e gerar uma query principal com ate duas variacoes.
 - `b2b_services`: Google Places -> enriquecimento opcional de contato -> fallback Google Search.
 - `automotive`: Webmotors -> OLX carros -> Marketplace opcional -> fallback Google Search.
 - `real_estate`: scraper imobiliario Brasil -> Zap Imoveis -> Marketplace opcional -> fallback Google Search.
 - Cada actor roda com polling ate concluir.
 - O dataset retornado e normalizado para o schema da UI: `id`, `title`, `price`, `temperature`, `reason`, `phone`, `email`, `seller_name`, `link`.
+- Depois da coleta, o backend aplica ranking leve e melhora o `reason`.
+- Se OpenAI falhar ou estiver desabilitado, a busca continua com heuristica local e nao derruba a API.
 - Se um actor falhar ou vier com schema inesperado, o backend segue para o proximo actor da cadeia.
 - O resultado final e salvo em `search_history.raw_response`.
 - O `reveal` recupera o lead a partir do historico persistido no Supabase.
