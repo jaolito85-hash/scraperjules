@@ -12,6 +12,7 @@ beautifulsoup4==4.12.3
 playwright==1.42.0
 pydantic==2.6.3
 python-dotenv==1.0.1
+httpx<0.28
 """,
     ".env.example": """OPENAI_API_KEY=sk-SuaChaveAqui
 SUPABASE_URL=https://seu-projeto.supabase.co
