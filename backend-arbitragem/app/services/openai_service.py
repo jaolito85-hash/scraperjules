@@ -14,129 +14,17 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-
 SUPPORTED_VERTICALS = {"business_local", "vehicle", "real_estate", "product", "service_demand"}
-LEGACY_CATEGORY_TO_VERTICAL = {
-    "b2b_services": "business_local",
-    "automotive": "vehicle",
-    "real_estate": "real_estate",
-}
-VERTICAL_TO_PIPELINE = {
-    "business_local": "b2b_services",
-    "vehicle": "automotive",
-    "real_estate": "real_estate",
-    "product": "product",
-    "service_demand": "service_demand",
-}
-BUSINESS_KEYWORDS = {
-    "clinica",
-    "clínica",
-    "odontologica",
-    "odontológica",
-    "dentista",
-    "restaurante",
-    "academia",
-    "hotel",
-    "oficina",
-    "empresa",
-    "loja",
-    "mercado",
-    "farmacia",
-    "farmácia",
-    "imobiliaria",
-    "imobiliária",
-}
-REAL_ESTATE_KEYWORDS = {"apartamento", "casa", "imovel", "imóvel", "terreno", "quartos", "kitnet", "sobrado"}
-VEHICLE_KEYWORDS = {"carro", "moto", "veiculo", "veículo", "caminhonete", "sedan", "hatch", "suv"}
-PRODUCT_KEYWORDS = {"iphone", "geladeira", "tv", "televisao", "televisão", "notebook", "sofa", "sofá"}
-SERVICE_PROFESSIONS = {
-    "encanador",
-    "pedreiro",
-    "eletricista",
-    "advogado",
-    "pintor",
-    "diarista",
-    "mecanico",
-    "mecânico",
-    "freteiro",
-    "marceneiro",
-}
-VEHICLE_BRANDS = {
-    "toyota",
-    "honda",
-    "chevrolet",
-    "fiat",
-    "volkswagen",
-    "vw",
-    "hyundai",
-    "renault",
-    "ford",
-    "nissan",
-    "jeep",
-    "yamaha",
-    "suzuki",
-    "bmw",
-    "mercedes",
-    "audi",
-}
-BRAZILIAN_STATES = {
-    "acre",
-    "alagoas",
-    "amapa",
-    "amazonas",
-    "bahia",
-    "ceara",
-    "distrito federal",
-    "espirito santo",
-    "goias",
-    "maranhao",
-    "mato grosso",
-    "mato grosso do sul",
-    "minas gerais",
-    "para",
-    "paraiba",
-    "parana",
-    "pernambuco",
-    "piaui",
-    "rio de janeiro",
-    "rio grande do norte",
-    "rio grande do sul",
-    "rondonia",
-    "roraima",
-    "santa catarina",
-    "sao paulo",
-    "sergipe",
-    "tocantins",
-    "pr",
-    "sp",
-    "rj",
-    "sc",
-    "rs",
-    "mg",
-}
-STOPWORDS = {
-    "procure",
-    "buscar",
-    "busque",
-    "mais",
-    "barato",
-    "barata",
-    "clientes",
-    "cliente",
-    "para",
-    "de",
-    "do",
-    "da",
-    "dos",
-    "das",
-    "em",
-    "no",
-    "na",
-    "o",
-    "a",
-    "os",
-    "as",
-}
+LEGACY_CATEGORY_TO_VERTICAL = {"b2b_services": "business_local", "automotive": "vehicle", "real_estate": "real_estate"}
+VERTICAL_TO_PIPELINE = {"business_local": "b2b_services", "vehicle": "automotive", "real_estate": "real_estate", "product": "product", "service_demand": "service_demand"}
+REAL_ESTATE_KEYWORDS = {"apartamento", "casa", "imovel", "terreno", "quartos", "kitnet", "sobrado"}
+VEHICLE_KEYWORDS = {"carro", "moto", "veiculo", "caminhonete", "sedan", "hatch", "suv"}
+KNOWN_VEHICLE_BRANDS = {"toyota", "honda", "chevrolet", "fiat", "volkswagen", "vw", "hyundai", "renault", "ford", "nissan", "jeep", "yamaha", "suzuki", "bmw", "mercedes", "audi", "kawasaki"}
+BUSINESS_KEYWORDS = {"clinica", "odontologica", "dentista", "restaurante", "academia", "hotel", "oficina", "loja", "empresa", "imobiliaria", "mercado", "farmacia"}
+PRODUCT_KEYWORDS = {"iphone", "geladeira", "televisao", "tv", "notebook", "sofa", "fogao"}
+SERVICE_PROFESSIONS = {"encanador", "pedreiro", "eletricista", "advogado", "pintor", "diarista", "mecanico", "freteiro", "marceneiro"}
+BRAZILIAN_STATES = {"acre", "alagoas", "amapa", "amazonas", "bahia", "ceara", "distrito federal", "espirito santo", "goias", "maranhao", "mato grosso", "mato grosso do sul", "minas gerais", "para", "paraiba", "parana", "pernambuco", "piaui", "rio de janeiro", "rio grande do norte", "rio grande do sul", "rondonia", "roraima", "santa catarina", "sao paulo", "sergipe", "tocantins", "pr", "sp", "rj", "sc", "rs", "mg"}
+STOPWORDS = {"procure", "buscar", "busque", "mais", "barato", "barata", "clientes", "cliente", "para", "de", "do", "da", "dos", "das", "em", "no", "na", "o", "a", "os", "as"}
 
 
 @dataclass(frozen=True)
@@ -159,9 +47,18 @@ class SearchIntent:
     pipeline_category: str
 
 
+@dataclass(frozen=True)
+class MatchEvaluation:
+    score: int
+    keep: bool
+    reason: str
+    match_label: str
+    source: str
+    temperature: str
+
+
 def is_openai_enabled() -> bool:
-    flag = os.getenv("OPENAI_ENABLED", "").strip().lower()
-    return flag in {"1", "true", "yes", "on"} and bool(os.getenv("OPENAI_API_KEY", "").strip())
+    return os.getenv("OPENAI_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"} and bool(os.getenv("OPENAI_API_KEY", "").strip())
 
 
 def get_openai_model() -> str:
@@ -173,120 +70,68 @@ def resolve_pipeline_category(intent: SearchIntent) -> str:
 
 
 def analyze_search_intent(search_term: str, category: str) -> SearchIntent:
-    fallback_intent = _build_fallback_intent(search_term, category)
+    fallback = _build_fallback_intent(search_term, category)
     if not is_openai_enabled():
-        return fallback_intent
-
+        return fallback
     try:
         payload = _chat_json(
-            system_prompt=(
-                "Voce interpreta buscas livres para um motor de arbitragem. "
-                "Responda JSON valido com: vertical, goal, entity, brand, model, year, location, attributes, sort, "
-                "primary_terms, expanded_terms, primary_query, alternate_queries. "
-                "Use apenas estas verticais: business_local, vehicle, real_estate, product, service_demand. "
-                "alternate_queries deve ter no maximo 2 itens. attributes deve ser um objeto simples."
-            ),
-            user_prompt=json.dumps(
-                {
-                    "search_term": search_term,
-                    "requested_category": category,
-                    "supported_verticals": sorted(SUPPORTED_VERTICALS),
-                    "legacy_mapping": LEGACY_CATEGORY_TO_VERTICAL,
-                },
-                ensure_ascii=False,
-            ),
+            "Responda JSON com vertical, goal, entity, brand, model, year, location, attributes, sort, primary_terms, expanded_terms, primary_query, alternate_queries. Use apenas business_local, vehicle, real_estate, product, service_demand.",
+            json.dumps({"search_term": search_term, "requested_category": category}, ensure_ascii=False),
         )
-        return _parse_intent_payload(payload, fallback_intent)
+        return _parse_intent_payload(payload, fallback)
     except Exception as exc:
         logger.warning("Falha ao interpretar busca com OpenAI; usando heuristica local", extra={"error": str(exc)})
-        return fallback_intent
+        return fallback
 
 
-def enrich_and_rank_leads(
-    leads: list[dict[str, Any]],
-    intent: SearchIntent,
-    *,
-    original_search_term: str,
-    category: str,
-) -> list[dict[str, Any]]:
+def enrich_and_rank_leads(leads: list[dict[str, Any]], intent: SearchIntent, *, original_search_term: str, category: str) -> list[dict[str, Any]]:
     if not leads:
         return leads
-
-    ranked = sorted(
-        (
-            (_score_lead(lead, intent=intent), _build_reason_fallback(lead, intent=intent), lead)
-            for lead in leads
-        ),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-
-    enriched = [{**lead, "reason": reason} for _, reason, lead in ranked]
+    evaluated = [(_evaluate_lead(lead, intent), lead) for lead in leads]
+    kept = [(ev, lead) for ev, lead in evaluated if ev.keep] or [(_evaluate_lead(lead, intent, allow_relaxed=True), lead) for lead in leads]
+    kept.sort(key=lambda item: item[0].score, reverse=True)
+    enriched = [{**lead, "reason": ev.reason, "source": ev.source or None, "match_label": ev.match_label, "temperature": ev.temperature} for ev, lead in kept]
     if not is_openai_enabled():
         return enriched
-
     try:
-        ai_reason_map = _generate_reason_map_with_openai(enriched, intent=intent, original_search_term=original_search_term, category=category)
+        reason_map = _generate_reason_map_with_openai(enriched, intent=intent, original_search_term=original_search_term, category=category)
     except Exception as exc:
         logger.warning("Falha ao enriquecer reasons com OpenAI; mantendo reasons deterministicas", extra={"error": str(exc)})
         return enriched
-
-    return [{**lead, "reason": ai_reason_map.get(str(lead.get("id")), lead["reason"])} for lead in enriched]
+    return [{**lead, "reason": reason_map.get(str(lead.get("id")), str(lead.get("reason") or ""))} for lead in enriched]
 
 
 def _build_fallback_intent(search_term: str, category: str) -> SearchIntent:
-    normalized = re.sub(r"\s+", " ", search_term).strip()
+    normalized = _collapse(search_term)
     vertical = _infer_vertical(normalized, category)
-    goal = _infer_goal(normalized, vertical)
     location = _extract_location(normalized)
     brand = _extract_brand(normalized)
     year = _extract_year(normalized)
     attributes = _extract_attributes(normalized, vertical)
     entity = _extract_entity(normalized, vertical, location, brand, year)
     model = _extract_model(normalized, brand, location, year)
-    sort = "price_asc" if any(term in normalized.lower() for term in ("mais barato", "mais barata", "menor preco", "menor preço")) else "relevance"
-    primary_terms = _build_primary_terms(vertical, entity, brand, model, year, location, attributes)
+    goal = _infer_goal(normalized, vertical)
+    sort = "price_asc" if "mais barato" in normalized.lower() or "mais barata" in normalized.lower() else "relevance"
+    primary_terms = _terms(entity, brand, model, year, location, attributes)
     expanded_terms = _expand_terms(primary_terms, vertical, goal)
-    primary_query = _build_primary_query(vertical, normalized, entity, brand, model, year, location, attributes, goal)
-    alternate_queries = tuple(query for query in _build_alternate_queries(vertical, normalized, entity, brand, model, year, location, goal) if query != primary_query)[:2]
-
-    return SearchIntent(
-        original_search_term=search_term,
-        requested_category=category,
-        vertical=vertical,
-        goal=goal,
-        entity=entity,
-        brand=brand,
-        model=model,
-        year=year,
-        location=location,
-        attributes=attributes,
-        sort=sort,
-        primary_terms=tuple(primary_terms[:6]),
-        expanded_terms=tuple(expanded_terms[:8]),
-        primary_query=primary_query,
-        alternate_queries=alternate_queries,
-        pipeline_category=VERTICAL_TO_PIPELINE[vertical],
-    )
+    primary_query = _build_primary_query(vertical, entity, brand, model, year, location, attributes, goal, normalized)
+    alternate_queries = tuple(q for q in _alternate_queries(vertical, entity, brand, model, year, location, goal, normalized) if q != primary_query)[:2]
+    return SearchIntent(normalized, category, vertical, goal, entity, brand, model, year, location, attributes, sort, tuple(primary_terms[:6]), tuple(expanded_terms[:8]), primary_query, alternate_queries, VERTICAL_TO_PIPELINE[vertical])
 
 
 def _infer_vertical(search_term: str, category: str) -> str:
-    category_key = category.strip().lower()
-    if category_key in LEGACY_CATEGORY_TO_VERTICAL:
-        return LEGACY_CATEGORY_TO_VERTICAL[category_key]
-
+    if category.strip().lower() in LEGACY_CATEGORY_TO_VERTICAL:
+        return LEGACY_CATEGORY_TO_VERTICAL[category.strip().lower()]
     lowered = search_term.lower()
-    if "clientes para" in lowered or "cliente para" in lowered:
+    if "clientes para" in lowered or "cliente para" in lowered or any(p in lowered for p in SERVICE_PROFESSIONS):
         return "service_demand"
-    if any(keyword in lowered for keyword in REAL_ESTATE_KEYWORDS):
+    if any(k in lowered for k in REAL_ESTATE_KEYWORDS):
         return "real_estate"
-    if any(keyword in lowered for keyword in VEHICLE_KEYWORDS) or any(keyword in lowered for keyword in VEHICLE_BRANDS):
+    if any(k in lowered for k in VEHICLE_KEYWORDS) or any(k in lowered for k in KNOWN_VEHICLE_BRANDS):
         return "vehicle"
-    if any(keyword in lowered for keyword in BUSINESS_KEYWORDS):
+    if any(k in lowered for k in BUSINESS_KEYWORDS):
         return "business_local"
-    if any(keyword in lowered for keyword in SERVICE_PROFESSIONS):
-        return "service_demand"
-    if any(keyword in lowered for keyword in PRODUCT_KEYWORDS):
+    if any(k in lowered for k in PRODUCT_KEYWORDS):
         return "product"
     return "product"
 
@@ -295,8 +140,10 @@ def _infer_goal(search_term: str, vertical: str) -> str:
     lowered = search_term.lower()
     if "clientes para" in lowered or "cliente para" in lowered:
         return "generate_demand"
-    if any(term in lowered for term in ("mais barato", "mais barata", "menor preco", "menor preço")):
+    if "mais barato" in lowered or "mais barata" in lowered:
         return "find_cheapest"
+    if any(t in lowered for t in ("aluguel", "alugar", "locacao")):
+        return "rent"
     if vertical == "business_local":
         return "find_local_business"
     return "search_supply"
@@ -304,24 +151,20 @@ def _infer_goal(search_term: str, vertical: str) -> str:
 
 def _extract_location(search_term: str) -> str:
     lowered = search_term.lower()
-    segments = [segment.strip() for segment in re.split(r"[,/\-\n]+", lowered) if segment.strip()]
-    for segment in reversed(segments):
-        words = segment.split()
-        if segment in BRAZILIAN_STATES or len(words) in {1, 2}:
-            return segment.title()
-
+    parts = [part.strip() for part in re.split(r"[,/\-\n]+", lowered) if part.strip()]
+    for part in reversed(parts):
+        words = part.split()
+        if part in BRAZILIAN_STATES or len(words) in {1, 2}:
+            return part.title()
     words = [word for word in lowered.split() if word]
-    for size in (2, 1):
-        if len(words) >= size:
-            candidate = " ".join(words[-size:])
-            if candidate in BRAZILIAN_STATES or size == 2:
-                return candidate.title()
+    if len(words) >= 2:
+        return " ".join(words[-2:]).title()
     return ""
 
 
 def _extract_brand(search_term: str) -> str:
     lowered = search_term.lower()
-    for brand in sorted(VEHICLE_BRANDS, key=len, reverse=True):
+    for brand in sorted(KNOWN_VEHICLE_BRANDS, key=len, reverse=True):
         if re.search(rf"\b{re.escape(brand)}\b", lowered):
             return brand.title()
     return ""
@@ -333,161 +176,108 @@ def _extract_year(search_term: str) -> str:
 
 
 def _extract_attributes(search_term: str, vertical: str) -> dict[str, str]:
-    attributes: dict[str, str] = {}
     lowered = search_term.lower()
-    quartos = re.search(r"(\d+)\s+quartos?", lowered)
-    if quartos:
-        attributes["rooms"] = quartos.group(1)
+    attrs: dict[str, str] = {}
+    rooms = re.search(r"(\d+)\s+quartos?", lowered)
+    if rooms:
+        attrs["rooms"] = rooms.group(1)
+    if "moto" in lowered:
+        attrs["vehicle_type"] = "moto"
+    elif "carro" in lowered or "sedan" in lowered or "hatch" in lowered or "suv" in lowered:
+        attrs["vehicle_type"] = "carro"
+    if "apartamento" in lowered:
+        attrs["property_type"] = "apartamento"
+    elif "casa" in lowered:
+        attrs["property_type"] = "casa"
+    if any(t in lowered for t in ("aluguel", "alugar", "locacao")):
+        attrs["transaction_type"] = "rent"
+    elif any(t in lowered for t in ("venda", "comprar", "compra")):
+        attrs["transaction_type"] = "sale"
     if vertical == "service_demand":
         for profession in SERVICE_PROFESSIONS:
             if profession in lowered:
-                attributes["service"] = profession
+                attrs["service"] = profession
                 break
-    if "brasil" in lowered:
-        attributes["scope"] = "Brasil"
-    return attributes
+    return attrs
 
 
 def _extract_entity(search_term: str, vertical: str, location: str, brand: str, year: str) -> str:
-    normalized = search_term
-    for value in (location, brand, year):
-        if value:
-            normalized = re.sub(re.escape(value), "", normalized, flags=re.IGNORECASE)
-    normalized = re.sub(r"\b(procure|buscar|busque|mais barato|mais barata|do brasil|de brasil)\b", "", normalized, flags=re.IGNORECASE)
-    normalized = re.sub(r"\s+", " ", normalized).strip(" ,-")
-    if normalized:
-        return normalized
-    defaults = {
-        "business_local": "negocio local",
-        "vehicle": "veiculo",
-        "real_estate": "imovel",
-        "product": "produto",
-        "service_demand": "demanda de servico",
-    }
-    return defaults[vertical]
+    value = search_term
+    for item in (location, brand, year):
+        if item:
+            value = re.sub(re.escape(item), "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\b(procure|buscar|busque|mais barato|mais barata|do brasil|de brasil|o|a|os|as)\b", "", value, flags=re.IGNORECASE)
+    value = _collapse(value).strip(" ,-")
+    return value or {"business_local": "negocio local", "vehicle": "veiculo", "real_estate": "imovel", "product": "produto", "service_demand": "demanda de servico"}[vertical]
 
 
 def _extract_model(search_term: str, brand: str, location: str, year: str) -> str:
-    normalized = search_term
-    for value in (brand, location, year):
-        if value:
-            normalized = re.sub(re.escape(value), "", normalized, flags=re.IGNORECASE)
-    tokens = [token for token in re.split(r"[^a-zA-Z0-9à-ÿÀ-ß]+", normalized) if token]
-    cleaned = [token for token in tokens if token.lower() not in STOPWORDS and len(token) > 1]
-    if brand and cleaned:
-        try:
-            brand_index = [token.lower() for token in cleaned].index(brand.lower())
-        except ValueError:
-            brand_index = -1
-        if brand_index >= 0:
-            cleaned = cleaned[brand_index + 1 :]
-    return " ".join(cleaned[:3]).strip()
+    value = search_term
+    for item in (brand, location, year):
+        if item:
+            value = re.sub(re.escape(item), "", value, flags=re.IGNORECASE)
+    tokens = [token for token in re.split(r"[^a-zA-Z0-9à-ÿÀ-ß]+", value) if token]
+    clean = [token for token in tokens if token.lower() not in STOPWORDS and len(token) > 1]
+    return " ".join(clean[:3]).strip()
 
 
-def _build_primary_terms(
-    vertical: str,
-    entity: str,
-    brand: str,
-    model: str,
-    year: str,
-    location: str,
-    attributes: dict[str, str],
-) -> list[str]:
-    candidates = [entity, brand, model, year, location, attributes.get("service", ""), attributes.get("rooms", "")]
+def _terms(entity: str, brand: str, model: str, year: str, location: str, attrs: dict[str, str]) -> list[str]:
     terms: list[str] = []
-    for candidate in candidates:
+    for candidate in (entity, brand, model, year, location, attrs.get("service", ""), attrs.get("rooms", ""), attrs.get("property_type", "")):
         for token in re.split(r"[^a-zA-Z0-9à-ÿÀ-ß]+", str(candidate).lower()):
             if len(token) < 2 or token in STOPWORDS or token in terms:
                 continue
             terms.append(token)
-    if vertical == "vehicle" and "carro" not in terms and "moto" not in terms:
-        terms.append("veiculo")
+    if attrs.get("vehicle_type") and attrs["vehicle_type"] not in terms:
+        terms.append(attrs["vehicle_type"])
     return terms
 
 
 def _expand_terms(primary_terms: Iterable[str], vertical: str, goal: str) -> list[str]:
-    expansions = list(primary_terms)
-    by_vertical = {
+    extras = {
         "business_local": ["google maps", "telefone", "contato"],
         "vehicle": ["webmotors", "olx", "seminovo"],
         "real_estate": ["imovel", "zap", "olx"],
         "product": ["marketplace", "preco", "oferta"],
-        "service_demand": ["orcamento", "precisa", "contratar"],
+        "service_demand": ["orcamento", "contratar", "servico"],
     }
-    for term in by_vertical.get(vertical, []):
-        if term not in expansions:
-            expansions.append(term)
-    if goal == "find_cheapest" and "mais barato" not in expansions:
-        expansions.append("mais barato")
-    return expansions
+    expanded = list(primary_terms)
+    for term in extras.get(vertical, []):
+        if term not in expanded:
+            expanded.append(term)
+    if goal == "find_cheapest" and "mais barato" not in expanded:
+        expanded.append("mais barato")
+    return expanded
 
 
-def _build_primary_query(
-    vertical: str,
-    original_search_term: str,
-    entity: str,
-    brand: str,
-    model: str,
-    year: str,
-    location: str,
-    attributes: dict[str, str],
-    goal: str,
-) -> str:
+def _build_primary_query(vertical: str, entity: str, brand: str, model: str, year: str, location: str, attrs: dict[str, str], goal: str, original: str) -> str:
     if vertical == "service_demand":
-        service = attributes.get("service") or entity
-        base = f"{service} clientes {location}".strip()
-        return re.sub(r"\s+", " ", base).strip()
+        return _collapse(f"{attrs.get('service') or entity} clientes {location}")
     if vertical == "real_estate":
-        rooms = f"{attributes['rooms']} quartos " if attributes.get("rooms") else ""
-        sort = " mais barato" if goal == "find_cheapest" else ""
-        base = f"{entity} {rooms}{location}{sort}"
-        return re.sub(r"\s+", " ", base).strip()
+        return _collapse(f"{entity} {attrs.get('rooms', '')} quartos {location} {'mais barato' if goal == 'find_cheapest' else ''}")
     if vertical == "vehicle":
-        sort = " mais barato" if goal == "find_cheapest" else ""
-        base = f"{brand} {model} {year} {location}{sort}"
-        return re.sub(r"\s+", " ", base).strip()
-    if vertical == "business_local":
-        return re.sub(r"\s+", " ", f"{entity} {location}".strip()).strip()
-    if vertical == "product":
-        sort = " mais barato" if goal == "find_cheapest" else ""
-        return re.sub(r"\s+", " ", f"{entity} {brand} {model} {location}{sort}".strip()).strip()
-    return original_search_term
+        return _collapse(f"{brand} {model} {year} {location} {'mais barato' if goal == 'find_cheapest' else ''}")
+    if vertical in {"business_local", "product"}:
+        return _collapse(f"{entity} {location}")
+    return original
 
 
-def _build_alternate_queries(
-    vertical: str,
-    original_search_term: str,
-    entity: str,
-    brand: str,
-    model: str,
-    year: str,
-    location: str,
-    goal: str,
-) -> list[str]:
+def _alternate_queries(vertical: str, entity: str, brand: str, model: str, year: str, location: str, goal: str, original: str) -> list[str]:
     queries: list[str] = []
     if vertical == "service_demand":
-        queries.append(f"{entity} precisa {location}".strip())
-        queries.append(f"contratar {entity} {location}".strip())
+        queries.extend([_collapse(f"contratar {entity} {location}"), _collapse(f"{entity} orcamento {location}")])
     elif vertical == "vehicle":
-        queries.append(f"{brand} {model} {year} olx {location}".strip())
-        queries.append(f"{brand} {model} {year} webmotors".strip())
+        queries.extend([_collapse(f"{brand} {model} {year} olx {location}"), _collapse(f"{brand} {model} {year} webmotors")])
     elif vertical == "real_estate":
-        queries.append(f"{entity} olx {location}".strip())
-        queries.append(f"{entity} zap imoveis {location}".strip())
+        queries.extend([_collapse(f"{entity} olx {location}"), _collapse(f"{entity} zap imoveis {location}")])
     elif vertical == "business_local":
-        queries.append(f"{entity} {location} telefone".strip())
-        queries.append(f"{entity} {location} google maps".strip())
+        queries.extend([_collapse(f"{entity} {location} telefone"), _collapse(f"{entity} {location} google maps")])
     else:
-        queries.append(f"{entity} marketplace {location}".strip())
+        queries.append(_collapse(f"{entity} marketplace {location}"))
         if goal == "find_cheapest":
-            queries.append(f"{entity} menor preco {location}".strip())
-    queries.append(original_search_term.strip())
-    deduped: list[str] = []
-    for query in queries:
-        normalized = re.sub(r"\s+", " ", query).strip()
-        if normalized and normalized not in deduped:
-            deduped.append(normalized)
-    return deduped
+            queries.append(_collapse(f"{entity} menor preco {location}"))
+    queries.append(_collapse(original))
+    return [query for i, query in enumerate(queries) if query and query not in queries[:i]]
 
 
 def _openai_headers() -> dict[str, str]:
@@ -498,212 +288,218 @@ def _openai_headers() -> dict[str, str]:
 
 
 def _chat_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
-    base_url = os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL).rstrip("/")
     response = httpx.post(
-        f"{base_url}/chat/completions",
+        f"{os.getenv('OPENAI_BASE_URL', DEFAULT_OPENAI_BASE_URL).rstrip('/')}/chat/completions",
         headers=_openai_headers(),
-        json={
-            "model": get_openai_model(),
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        },
+        json={"model": get_openai_model(), "temperature": 0.2, "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]},
         timeout=25.0,
     )
     response.raise_for_status()
-    payload = response.json()
-    content = payload["choices"][0]["message"]["content"]
-    return json.loads(content)
+    return json.loads(response.json()["choices"][0]["message"]["content"])
 
 
-def _parse_intent_payload(payload: dict[str, Any], fallback_intent: SearchIntent) -> SearchIntent:
-    vertical = str(payload.get("vertical") or fallback_intent.vertical).strip()
+def _parse_intent_payload(payload: dict[str, Any], fallback: SearchIntent) -> SearchIntent:
+    vertical = str(payload.get("vertical") or fallback.vertical).strip()
     if vertical not in SUPPORTED_VERTICALS:
-        vertical = fallback_intent.vertical
-
-    attributes = payload.get("attributes")
-    if not isinstance(attributes, dict):
-        attributes = fallback_intent.attributes
-
-    primary_query = str(payload.get("primary_query") or fallback_intent.primary_query).strip()
-    alternate_queries = tuple(
-        query
-        for query in _sanitize_list(payload.get("alternate_queries"), fallback_intent.alternate_queries)
-        if query and query != primary_query
-    )[:2]
-
+        vertical = fallback.vertical
+    attrs = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else fallback.attributes
+    primary_query = str(payload.get("primary_query") or fallback.primary_query).strip()
+    alternate = tuple(q for q in _sanitize_list(payload.get("alternate_queries"), fallback.alternate_queries) if q and q != primary_query)[:2]
     return SearchIntent(
-        original_search_term=fallback_intent.original_search_term,
-        requested_category=fallback_intent.requested_category,
-        vertical=vertical,
-        goal=str(payload.get("goal") or fallback_intent.goal).strip(),
-        entity=str(payload.get("entity") or fallback_intent.entity).strip(),
-        brand=str(payload.get("brand") or fallback_intent.brand).strip(),
-        model=str(payload.get("model") or fallback_intent.model).strip(),
-        year=str(payload.get("year") or fallback_intent.year).strip(),
-        location=str(payload.get("location") or fallback_intent.location).strip(),
-        attributes={str(key): str(value) for key, value in attributes.items()},
-        sort=str(payload.get("sort") or fallback_intent.sort).strip(),
-        primary_terms=_sanitize_list(payload.get("primary_terms"), fallback_intent.primary_terms),
-        expanded_terms=_sanitize_list(payload.get("expanded_terms"), fallback_intent.expanded_terms),
-        primary_query=primary_query,
-        alternate_queries=alternate_queries,
-        pipeline_category=VERTICAL_TO_PIPELINE.get(vertical, fallback_intent.pipeline_category),
+        fallback.original_search_term,
+        fallback.requested_category,
+        vertical,
+        str(payload.get("goal") or fallback.goal).strip(),
+        str(payload.get("entity") or fallback.entity).strip(),
+        str(payload.get("brand") or fallback.brand).strip(),
+        str(payload.get("model") or fallback.model).strip(),
+        str(payload.get("year") or fallback.year).strip(),
+        str(payload.get("location") or fallback.location).strip(),
+        {str(k): str(v) for k, v in attrs.items()},
+        str(payload.get("sort") or fallback.sort).strip(),
+        _sanitize_list(payload.get("primary_terms"), fallback.primary_terms),
+        _sanitize_list(payload.get("expanded_terms"), fallback.expanded_terms),
+        primary_query,
+        alternate,
+        VERTICAL_TO_PIPELINE.get(vertical, fallback.pipeline_category),
     )
 
 
 def _sanitize_list(value: Any, fallback: Iterable[str]) -> tuple[str, ...]:
     if not isinstance(value, list):
         return tuple(str(item).strip() for item in fallback if str(item).strip())
-    cleaned = []
+    out: list[str] = []
     for item in value:
-        normalized = str(item).strip()
-        if normalized and normalized not in cleaned:
-            cleaned.append(normalized)
-    return tuple(cleaned)
+        item = str(item).strip()
+        if item and item not in out:
+            out.append(item)
+    return tuple(out)
 
 
-def _score_lead(lead: dict[str, Any], *, intent: SearchIntent) -> int:
-    haystack = " ".join([str(lead.get("title") or ""), str(lead.get("seller_name") or ""), str(lead.get("link") or "")]).lower()
-    score = 0
-    primary_matches = sum(1 for term in intent.primary_terms if term.lower() in haystack)
-    score += min(primary_matches, 3) * 2
-    expanded_matches = sum(1 for term in intent.expanded_terms if term.lower() in haystack)
-    score += min(expanded_matches, 2)
-    if intent.location and intent.location.lower() in haystack:
-        score += 2
-    if intent.year and intent.year in haystack:
-        score += 2
-    if intent.brand and intent.brand.lower() in haystack:
-        score += 2
-    if intent.model and intent.model.lower() in haystack:
-        score += 2
-    if lead.get("phone"):
-        score += 3
-    if lead.get("email"):
-        score += 2
-    if str(lead.get("price") or "").strip() and str(lead.get("price")).lower() != "sob consulta":
-        score += 1
-    score += _source_weight(_infer_source_label(str(lead.get("link") or "")), intent.vertical)
-    if intent.sort == "price_asc" and str(lead.get("price") or "").lower() != "sob consulta":
-        score += 1
-    return score
-
-
-def _source_weight(source: str, vertical: str) -> int:
-    weights = {
-        "business_local": {"Google Maps": 2, "Google Search": 1},
-        "vehicle": {"Webmotors": 2, "OLX": 1, "Facebook Marketplace": 1},
-        "real_estate": {"Zap Imoveis": 2, "OLX": 1, "Facebook Marketplace": 1},
-        "product": {"Facebook Marketplace": 2, "Google Search": 1},
-        "service_demand": {"Google Search": 2},
-    }
-    return weights.get(vertical, {}).get(source, 0)
-
-
-def _build_reason_fallback(lead: dict[str, Any], *, intent: SearchIntent) -> str:
-    haystack = " ".join([str(lead.get("title") or ""), str(lead.get("link") or "")]).lower()
+def _evaluate_lead(lead: dict[str, Any], intent: SearchIntent, allow_relaxed: bool = False) -> MatchEvaluation:
     source = _infer_source_label(str(lead.get("link") or ""))
-    reasons: list[str] = []
+    haystack = _haystack(lead)
+    if intent.vertical == "vehicle":
+        score = 0
+        reasons: list[str] = []
+        keep = True
+        if intent.attributes.get("vehicle_type") == "moto":
+            if any(t in haystack for t in ("moto", "cg", "titan")):
+                score += 3
+                reasons.append("tipo moto correspondente")
+            elif not allow_relaxed:
+                keep = False
+        if intent.brand:
+            if intent.brand.lower() in haystack:
+                score += 4
+                reasons.append(f"marca {intent.brand} correspondente")
+            elif any(b in haystack for b in KNOWN_VEHICLE_BRANDS if b != intent.brand.lower()) and not allow_relaxed:
+                keep = False
+                reasons.append("marca divergente")
+        if intent.model:
+            if intent.model.lower() in haystack:
+                score += 4
+                reasons.append("modelo correspondente")
+            elif not allow_relaxed:
+                score -= 3
+        if intent.year and intent.year in haystack:
+            score += 3
+            reasons.append(f"ano {intent.year} correspondente")
+        if intent.location and intent.location.lower() in haystack:
+            score += 2
+            reasons.append(f"localizacao em {intent.location}")
+        if str(lead.get("price") or "").lower() != "sob consulta":
+            score += 1
+            if intent.sort == "price_asc":
+                reasons.append("preco visivel")
+        return _build_eval(score, keep and score >= (3 if not allow_relaxed else 0), reasons or ["aderencia parcial ao veiculo pedido"], source, hot=8, warm=3)
 
-    if intent.sort == "price_asc" and str(lead.get("price") or "").lower() != "sob consulta":
-        reasons.append("preco visivel")
+    if intent.vertical == "real_estate":
+        score = 0
+        reasons = []
+        keep = True
+        ptype = intent.attributes.get("property_type")
+        if ptype:
+            if ptype in haystack:
+                score += 3
+                reasons.append(f"tipo {ptype} correspondente")
+            elif not allow_relaxed:
+                keep = False
+        rooms = intent.attributes.get("rooms")
+        if rooms and (re.search(rf"\b{re.escape(rooms)}\s+quartos?\b", haystack) or re.search(rf"\b{re.escape(rooms)}\s+dormitorios?\b", haystack)):
+            score += 3
+            reasons.append(f"{rooms} quartos correspondentes")
+        elif rooms and not allow_relaxed:
+            score -= 2
+        if intent.location and intent.location.lower() in haystack:
+            score += 3
+            reasons.append(f"localizacao em {intent.location}")
+        if str(lead.get("price") or "").lower() != "sob consulta":
+            score += 1
+            if intent.sort == "price_asc":
+                reasons.append("preco visivel")
+        if intent.attributes.get("transaction_type") == "rent" and any(t in haystack for t in ("aluguel", "alugar", "locacao")):
+            score += 2
+            reasons.append("objetivo de aluguel compativel")
+        if intent.attributes.get("transaction_type") == "sale" and any(t in haystack for t in ("venda", "comprar", "financiamento")):
+            score += 2
+            reasons.append("objetivo de compra compativel")
+        return _build_eval(score, keep and score >= (2 if not allow_relaxed else 0), reasons or ["aderencia parcial ao imovel pedido"], source, hot=7, warm=2)
+
+    if intent.vertical == "service_demand":
+        score = 0
+        reasons = []
+        service = intent.attributes.get("service") or intent.entity
+        if service and service.lower() in haystack:
+            score += 3
+            reasons.append(f"servico {service} relacionado")
+        if intent.location and intent.location.lower() in haystack:
+            score += 2
+            reasons.append(f"atende ou menciona {intent.location}")
+        demand = any(t in haystack for t in ("precisa", "procura", "orcamento", "contratar"))
+        partner = any(t in haystack for t in ("24h", "empresa", "servico", "atendemos", "assistencia", "solucao"))
+        label = "HOT" if demand else "PARTNER" if partner else "WARM"
+        if demand:
+            score += 4
+            reasons.append("sinal de demanda explicita")
+        elif partner:
+            score += 2
+            reasons.append("sinal de parceiro potencial")
+        if lead.get("phone") or lead.get("email"):
+            score += 2
+            reasons.append("contato disponivel")
+        temp = "HOT" if label == "HOT" else "WARM" if score >= 2 else "COLD"
+        return MatchEvaluation(score, score >= (2 if not allow_relaxed else 0), _render(reasons or ["resultado generico para a demanda"]), label, source, temp)
+
+    if intent.vertical == "business_local":
+        score = sum(2 for term in intent.primary_terms if term in haystack[:300])
+        reasons = []
+        if intent.location and intent.location.lower() in haystack:
+            score += 2
+            reasons.append(f"localizacao em {intent.location}")
+        if lead.get("phone"):
+            score += 3
+            reasons.append("telefone disponivel")
+        if source:
+            reasons.append(f"fonte {source}")
+        return _build_eval(score, score >= (2 if not allow_relaxed else 0), reasons or ["negocio local com sinais basicos de aderencia"], source, hot=6, warm=2)
+
+    score = min(sum(2 for term in intent.primary_terms if term in haystack), 6)
+    reasons = ["nome do item aderente"] if score else ["aderencia basica ao produto"]
     if intent.location and intent.location.lower() in haystack:
+        score += 2
         reasons.append(f"localizacao em {intent.location}")
-    if intent.year and intent.year in haystack:
-        reasons.append(f"ano {intent.year} correspondente")
-    if intent.model and intent.model.lower() in haystack:
-        reasons.append("modelo correspondente")
-    if lead.get("phone") and lead.get("email"):
-        reasons.append("contato completo")
-    elif lead.get("phone"):
-        reasons.append("telefone disponivel")
-    elif lead.get("email"):
-        reasons.append("email disponivel")
-    if source:
-        reasons.append(f"fonte {source}")
+    if str(lead.get("price") or "").lower() != "sob consulta":
+        score += 1
+        reasons.append("preco visivel")
+    return _build_eval(score, score >= (2 if not allow_relaxed else 0), reasons, source, hot=6, warm=2)
 
-    if not reasons:
-        reasons.append("aderencia ao termo buscado")
 
-    text = ", ".join(reasons[:3])
-    return text[0].upper() + text[1:] + "."
+def _build_eval(score: int, keep: bool, reasons: list[str], source: str, hot: int, warm: int) -> MatchEvaluation:
+    temperature = "HOT" if score >= hot else "WARM" if score >= warm else "COLD"
+    label = "HOT" if temperature == "HOT" else "WARM"
+    return MatchEvaluation(score, keep, _render(reasons), label, source, temperature)
+
+
+def _haystack(lead: dict[str, Any]) -> str:
+    return " ".join([str(lead.get("title") or ""), str(lead.get("seller_name") or ""), str(lead.get("link") or ""), str(lead.get("reason") or "")]).lower()
 
 
 def _infer_source_label(link: str) -> str:
-    hostname = urlparse(link).netloc.lower()
-    if "google.com" in hostname and "maps" in link:
+    host = urlparse(link).netloc.lower()
+    if "google.com" in host and "maps" in link:
         return "Google Maps"
-    if "google.com" in hostname:
+    if "google.com" in host:
         return "Google Search"
-    if "webmotors" in hostname:
+    if "webmotors" in host:
         return "Webmotors"
-    if "olx" in hostname:
+    if "olx" in host:
         return "OLX"
-    if "zapimoveis" in hostname:
+    if "zapimoveis" in host:
         return "Zap Imoveis"
-    if "facebook" in hostname:
+    if "facebook" in host:
         return "Facebook Marketplace"
     return ""
 
 
-def _generate_reason_map_with_openai(
-    leads: list[dict[str, Any]],
-    *,
-    intent: SearchIntent,
-    original_search_term: str,
-    category: str,
-) -> dict[str, str]:
-    compact_leads = [
-        {
-            "id": str(lead.get("id")),
-            "title": str(lead.get("title") or ""),
-            "price": str(lead.get("price") or ""),
-            "has_phone": bool(lead.get("phone")),
-            "has_email": bool(lead.get("email")),
-            "source": _infer_source_label(str(lead.get("link") or "")),
-            "current_reason": str(lead.get("reason") or ""),
-        }
-        for lead in leads[: min(len(leads), 12)]
-    ]
+def _render(reasons: list[str]) -> str:
+    unique = [reason.strip() for reason in reasons if reason.strip()]
+    deduped = [reason for i, reason in enumerate(unique) if reason not in unique[:i]]
+    text = ", ".join(deduped[:3]) or "aderencia basica ao pedido"
+    return text[0].upper() + text[1:] + "."
+
+
+def _collapse(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _generate_reason_map_with_openai(leads: list[dict[str, Any]], *, intent: SearchIntent, original_search_term: str, category: str) -> dict[str, str]:
+    compact = [{"id": str(lead.get("id")), "title": str(lead.get("title") or ""), "price": str(lead.get("price") or ""), "temperature": str(lead.get("temperature") or ""), "match_label": str(lead.get("match_label") or ""), "source": str(lead.get("source") or ""), "has_phone": bool(lead.get("phone")), "has_email": bool(lead.get("email")), "current_reason": str(lead.get("reason") or "")} for lead in leads[:12]]
     payload = _chat_json(
-        system_prompt=(
-            "Voce escreve reasons curtos para leads de um motor universal de busca. "
-            "Responda JSON valido com chave items, lista de objetos {id, reason}. "
-            "Cada reason deve ser curto, factual, em pt-BR, maximo 90 caracteres."
-        ),
-        user_prompt=json.dumps(
-            {
-                "original_search_term": original_search_term,
-                "category": category,
-                "vertical": intent.vertical,
-                "goal": intent.goal,
-                "intent": {
-                    "entity": intent.entity,
-                    "brand": intent.brand,
-                    "model": intent.model,
-                    "year": intent.year,
-                    "location": intent.location,
-                    "attributes": intent.attributes,
-                },
-                "leads": compact_leads,
-            },
-            ensure_ascii=False,
-        ),
+        "Escreva reasons curtos para leads. Responda JSON com items: [{id, reason}] e no maximo 90 caracteres por reason.",
+        json.dumps({"original_search_term": original_search_term, "category": category, "vertical": intent.vertical, "goal": intent.goal, "intent": {"entity": intent.entity, "brand": intent.brand, "model": intent.model, "year": intent.year, "location": intent.location, "attributes": intent.attributes}, "leads": compact}, ensure_ascii=False),
     )
     items = payload.get("items")
     if not isinstance(items, list):
         return {}
-
-    reason_map: dict[str, str] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        lead_id = str(item.get("id") or "").strip()
-        reason = str(item.get("reason") or "").strip()
-        if lead_id and reason:
-            reason_map[lead_id] = reason[:90]
-    return reason_map
+    return {str(item.get("id")).strip(): str(item.get("reason")).strip()[:90] for item in items if isinstance(item, dict) and str(item.get("id") or "").strip() and str(item.get("reason") or "").strip()}

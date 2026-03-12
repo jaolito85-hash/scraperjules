@@ -38,6 +38,8 @@ class LeadResponse(BaseModel):
     email: str
     seller_name: str
     link: str | None = None
+    source: str | None = None
+    match_label: str | None = None
 
 
 class SearchResponse(BaseModel):
