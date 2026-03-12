@@ -146,6 +146,102 @@ def record_search(
     return profile
 
 
+def hydrate_revealed_leads(external_id: str, leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not leads or not is_supabase_enabled():
+        return leads
+
+    profile = get_or_create_profile(external_id)
+    lead_ids = ",".join(f'"{lead["id"]}"' for lead in leads if lead.get("id"))
+    if not lead_ids:
+        return leads
+
+    revealed_items = _request(
+        "GET",
+        "revealed_leads",
+        params={
+            "profile_id": f"eq.{profile['id']}",
+            "lead_external_id": f"in.({lead_ids})",
+            "select": "lead_external_id,phone,email,seller_name,link",
+        },
+    ) or []
+
+    revealed_map = {item["lead_external_id"]: item for item in revealed_items}
+    hydrated: list[dict[str, Any]] = []
+
+    for lead in leads:
+        revealed = revealed_map.get(lead["id"])
+        if not revealed:
+            hydrated.append(lead)
+            continue
+
+        hydrated.append(
+            {
+                **lead,
+                "is_revealed": True,
+                "phone": revealed.get("phone", lead.get("phone", "")),
+                "email": revealed.get("email", lead.get("email", "")),
+                "seller_name": revealed.get("seller_name", lead.get("seller_name", "Oculto")),
+                "link": revealed.get("link", lead.get("link")),
+            }
+        )
+
+    return hydrated
+
+
+def get_lead_from_history(external_id: str, lead_id: str) -> dict[str, Any] | None:
+    if not is_supabase_enabled():
+        return None
+
+    profile = get_or_create_profile(external_id)
+    search_history = _request(
+        "GET",
+        "search_history",
+        params={
+            "profile_id": f"eq.{profile['id']}",
+            "select": "raw_response,created_at",
+            "order": "created_at.desc",
+            "limit": "10",
+        },
+    ) or []
+
+    for row in search_history:
+        raw_response = row.get("raw_response") or []
+        if not isinstance(raw_response, list):
+            continue
+
+        for lead in raw_response:
+            if isinstance(lead, dict) and str(lead.get("id")) == lead_id:
+                return lead
+
+    revealed_items = _request(
+        "GET",
+        "revealed_leads",
+        params={
+            "profile_id": f"eq.{profile['id']}",
+            "lead_external_id": f"eq.{lead_id}",
+            "select": "lead_external_id,title,phone,email,seller_name,link",
+            "limit": "1",
+        },
+    ) or []
+
+    if not revealed_items:
+        return None
+
+    item = revealed_items[0]
+    return {
+        "id": item["lead_external_id"],
+        "title": item.get("title", "Lead revelado"),
+        "phone": item.get("phone", ""),
+        "email": item.get("email", ""),
+        "seller_name": item.get("seller_name", "Oculto"),
+        "link": item.get("link"),
+        "is_revealed": True,
+        "price": "Sob consulta",
+        "temperature": "WARM",
+        "reason": "Lead recuperado do historico de reveals.",
+    }
+
+
 def reveal_lead(external_id: str, lead: dict[str, Any]) -> dict[str, Any]:
     profile = get_or_create_profile(external_id)
 

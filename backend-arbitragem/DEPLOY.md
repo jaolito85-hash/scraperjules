@@ -1,9 +1,10 @@
-﻿# Deploy do SaaS Arbitragem
+# Deploy do SaaS Arbitragem
 
 ## Arquitetura
 - Frontend Next.js em um servico separado no Coolify.
 - Backend FastAPI em outro servico no Coolify.
 - Banco e persistencia no Supabase.
+- Busca real executada por Actor do Apify.
 
 ## Supabase
 1. Crie um projeto no Supabase.
@@ -22,9 +23,18 @@
   - `ALLOWED_ORIGINS=https://seu-frontend.com,http://localhost:3000`
   - `SUPABASE_URL=...`
   - `SUPABASE_SERVICE_ROLE_KEY=...`
+  - `APIFY_TOKEN=...`
+  - `APIFY_ACTOR_ID=...`
   - `DEFAULT_USER_CREDITS=100`
   - `REVEAL_COST=30`
-  - `OPENAI_API_KEY=...`
+- Variaveis opcionais:
+  - `APIFY_ACTOR_MODE=generic_query` ou `google_places`
+  - `APIFY_TIMEOUT_SECONDS=120`
+  - `APIFY_POLL_INTERVAL=3`
+  - `USE_MOCK_SCRAPER=false`
+  - `APIFY_ACTOR_ID_AUTOMOTIVE=...`
+  - `APIFY_ACTOR_ID_REAL_ESTATE=...`
+  - `APIFY_ACTOR_ID_B2B_SERVICES=...`
 
 ## Frontend no Coolify
 - Tipo: Dockerfile ou Node.
@@ -32,6 +42,13 @@
 - Variavel obrigatoria: `NEXT_PUBLIC_API_URL=https://sua-api.com`
 - Build: `npm run build`
 - Start: `npm run start`
+
+## Fluxo Apify
+- `POST /leads/search` inicia um run de Actor no Apify.
+- O backend faz polling ate o run concluir.
+- O dataset retornado e normalizado para o schema da UI.
+- O resultado final e salvo em `search_history.raw_response`.
+- O `reveal` recupera o lead a partir do historico persistido no Supabase.
 
 ## Ordem recomendada de deploy
 1. Suba o backend no Coolify.

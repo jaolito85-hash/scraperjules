@@ -3,10 +3,17 @@
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.mock_leads import build_mock_leads, get_mock_lead_by_id
+from app.services.lead_sources import (
+    ApifyConfigurationError,
+    ApifyRunFailedError,
+    ApifyTimeoutError,
+    search_leads,
+)
 from app.services.supabase_store import (
     CreditsExhaustedError,
+    get_lead_from_history,
     get_user_external_id,
+    hydrate_revealed_leads,
     record_search,
     reveal_lead,
 )
@@ -52,8 +59,18 @@ class RevealResponse(BaseModel):
 @router.post("/search", response_model=SearchResponse)
 async def execute_search(payload: SearchRequest, x_user_id: str | None = Header(default=None)):
     search_term = payload.search_term.strip()
-    leads = build_mock_leads(search_term)[: payload.limit]
     external_user_id = get_user_external_id(x_user_id)
+
+    try:
+        leads = search_leads(search_term, payload.category, payload.limit)
+    except ApifyConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ApifyTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ApifyRunFailedError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    leads = hydrate_revealed_leads(external_user_id, leads)
     profile = record_search(external_user_id, search_term, payload.category, leads)
 
     return {
@@ -65,11 +82,10 @@ async def execute_search(payload: SearchRequest, x_user_id: str | None = Header(
 
 @router.post("/{lead_id}/reveal", response_model=RevealResponse)
 async def reveal_hot_lead(lead_id: str, x_user_id: str | None = Header(default=None)):
-    lead = get_mock_lead_by_id(lead_id)
+    external_user_id = get_user_external_id(x_user_id)
+    lead = get_lead_from_history(external_user_id, lead_id)
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead nao encontrado.")
-
-    external_user_id = get_user_external_id(x_user_id)
 
     try:
         reveal_result = reveal_lead(external_user_id, lead)
