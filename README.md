@@ -1,6 +1,7 @@
 # SaaS Arbitragem
 
 Monorepo com frontend e backend do SaaS de arbitragem por scraper.
+Projeto focado em arbitragem com IA para ramos imobiliarios, automotivos e servicos B2B.
 
 ## Estrutura
 
