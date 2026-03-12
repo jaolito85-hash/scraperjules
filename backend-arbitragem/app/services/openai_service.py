@@ -166,7 +166,7 @@ def _extract_location(search_term: str) -> str:
     lowered = search_term.lower()
     segments = [segment.strip() for segment in re.split(r"[,/\-\n]+", lowered) if segment.strip()]
     for segment in reversed(segments):
-        if segment in BRAZILIAN_STATES or len(segment.split()) >= 2:
+        if segment in BRAZILIAN_STATES or len(segment.split()) in {1, 2}:
             return segment.title()
 
     words = lowered.split()
