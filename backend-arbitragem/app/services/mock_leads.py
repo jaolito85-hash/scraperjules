@@ -57,5 +57,7 @@ def build_mock_leads(search_term: str) -> list[dict]:
 def get_mock_lead_by_id(lead_id: str) -> dict | None:
     for lead in _BASE_LEADS:
         if lead["id"] == lead_id:
-            return deepcopy(lead)
+            revealed_lead = deepcopy(lead)
+            revealed_lead["title"] = f"Lead {lead_id} - {revealed_lead.pop('title_suffix')}"
+            return revealed_lead
     return None
