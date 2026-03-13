@@ -4,6 +4,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 VEHICLE_CONFIDENCE_MIN = 7
 
@@ -306,6 +307,59 @@ def evaluate_vehicle_match(candidate: VehicleCandidate, query: VehicleQuery, *, 
 
     confidence = "HIGH" if score >= 10 else "MEDIUM"
     return VehicleMatch(True, score, ", ".join(reasons[:3]), confidence, candidate.brand, candidate.model)
+
+
+def is_vehicle_listing_result(link: str, query: VehicleQuery, *, source: str = "", price: str = "") -> bool:
+    normalized_price = str(price or "").strip().lower()
+    if query.goal == "find_cheapest" and normalized_price in {"", "sob consulta"}:
+        return False
+
+    parsed = urlparse(str(link or "").strip())
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    last_segment = path.rstrip("/").split("/")[-1] if path else ""
+
+    if not host:
+        return False
+
+    blocked_hosts = (
+        "youtube.com",
+        "youtu.be",
+        "instagram.com",
+        "tiktok.com",
+        "linkedin.com",
+        "wikipedia.org",
+        "globo.com",
+        "uol.com.br",
+    )
+    if any(domain in host for domain in blocked_hosts):
+        return False
+
+    if "facebook.com" in host:
+        return "marketplace/item" in path
+
+    if "webmotors" in host:
+        return "/estoque" not in path
+
+    if "olx.com.br" in host:
+        return "/item/" in path or "/d/" in path or bool(re.search(r"-\d{6,}$", last_segment))
+
+    if "mercadolivre" in host:
+        return "mlb-" in path and "/lista" not in path
+
+    if "icarros.com.br" in host:
+        return bool(re.search(r"\d{5,}", last_segment))
+
+    if "mobiauto.com.br" in host:
+        return any(marker in path for marker in ("/veiculo/", "/anuncio/", "/oferta/")) or bool(re.search(r"\d{5,}", last_segment))
+
+    if "kavak.com" in host:
+        return any(marker in path for marker in ("/veiculo/", "/carro/", "/compra/")) and bool(re.search(r"\d{4,}", path))
+
+    if source == "Google Search":
+        return False
+
+    return bool(re.search(r"\d{5,}", last_segment))
 
 
 def canonical_vehicle_type(value: str) -> str:

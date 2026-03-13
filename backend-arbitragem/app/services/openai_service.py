@@ -13,6 +13,7 @@ from app.services.vehicle_intelligence import (
     VEHICLE_BRAND_ALIASES,
     build_vehicle_queries,
     evaluate_vehicle_match,
+    is_vehicle_listing_result,
     is_vehicle_search,
     parse_vehicle_candidate,
     parse_vehicle_query,
@@ -401,9 +402,13 @@ def _evaluate_lead(lead: dict[str, Any], intent: SearchIntent, allow_relaxed: bo
     if intent.vertical == "vehicle":
         query = parse_vehicle_query(intent.original_search_term)
         candidate = parse_vehicle_candidate(lead)
+        link = str(lead.get("link") or "")
+        price = str(lead.get("price") or "")
+        if not is_vehicle_listing_result(link, query, source=source, price=price):
+            return MatchEvaluation(0, False, "Resultado automotivo nao parece anuncio real.", "WARM", source, "COLD")
         match = evaluate_vehicle_match(candidate, query, source=source)
         reasons = [match.reason] if match.reason else []
-        if str(lead.get("price") or "").lower() != "sob consulta":
+        if price.lower() != "sob consulta":
             reasons.append("preco visivel")
         if not match.keep:
             return MatchEvaluation(match.score, False, "Aderencia insuficiente ao veiculo pedido.", "WARM", source, "COLD")
@@ -509,10 +514,20 @@ def _infer_source_label(link: str) -> str:
         return "Google Maps"
     if "google.com" in host:
         return "Google Search"
+    if "youtube.com" in host or "youtu.be" in host:
+        return "YouTube"
     if "webmotors" in host:
         return "Webmotors"
     if "olx" in host:
         return "OLX"
+    if "mercadolivre" in host:
+        return "Mercado Livre"
+    if "icarros" in host:
+        return "iCarros"
+    if "mobiauto" in host:
+        return "Mobiauto"
+    if "kavak" in host:
+        return "Kavak"
     if "zapimoveis" in host:
         return "Zap Imoveis"
     if "facebook" in host:
