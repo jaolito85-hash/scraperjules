@@ -52,7 +52,7 @@ def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
         collected = ranked
 
     if not collected:
-        if last_error is not None:
+        if isinstance(last_error, ApifyTimeoutError):
             raise last_error
         return []
 
