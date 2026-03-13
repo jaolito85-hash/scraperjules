@@ -828,7 +828,11 @@ def run_apify_layer(
         intent=intent,
         existing_leads=tuple(current_leads),
     )
-    candidate_results = _execute_candidate(candidate, context, actor_id)
+    try:
+        candidate_results = _execute_candidate(candidate, context, actor_id)
+    except httpx.HTTPError as exc:
+        raise ApifyRunFailedError(f"Falha ao executar o actor {actor_id}: {exc}") from exc
+
     if candidate.enrich:
         return _dedupe_leads(_merge_enrichment(current_leads, candidate_results), sanitized_limit)
     return _dedupe_leads([*current_leads, *candidate_results], sanitized_limit)
