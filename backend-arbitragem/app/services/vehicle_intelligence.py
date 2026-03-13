@@ -318,6 +318,22 @@ def is_vehicle_listing_result(link: str, query: VehicleQuery, *, source: str = "
     host = parsed.netloc.lower()
     path = parsed.path.lower()
     last_segment = path.rstrip("/").split("/")[-1] if path else ""
+    blocked_path_markers = (
+        "/busca",
+        "/search",
+        "tabela-fipe",
+        "/fipe",
+        "/tabela",
+        "/catalogo",
+        "/blog",
+        "/noticia",
+        "/noticias",
+        "/artigo",
+        "/review",
+        "/comparativo",
+        "/guia",
+        "/precos",
+    )
 
     if not host:
         return False
@@ -331,15 +347,18 @@ def is_vehicle_listing_result(link: str, query: VehicleQuery, *, source: str = "
         "wikipedia.org",
         "globo.com",
         "uol.com.br",
+        "napista.com.br",
     )
     if any(domain in host for domain in blocked_hosts):
+        return False
+    if any(marker in path for marker in blocked_path_markers):
         return False
 
     if "facebook.com" in host:
         return "marketplace/item" in path
 
     if "webmotors" in host:
-        return "/estoque" not in path
+        return "/estoque" not in path and "tabela-fipe" not in path
 
     if "olx.com.br" in host:
         return "/item/" in path or "/d/" in path or bool(re.search(r"-\d{6,}$", last_segment))
@@ -359,7 +378,7 @@ def is_vehicle_listing_result(link: str, query: VehicleQuery, *, source: str = "
     if source == "Google Search":
         return False
 
-    return bool(re.search(r"\d{5,}", last_segment))
+    return bool(re.search(r"\d{5,}", last_segment)) and not any(marker in path for marker in blocked_path_markers)
 
 
 def canonical_vehicle_type(value: str) -> str:
