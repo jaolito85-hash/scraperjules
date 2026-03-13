@@ -110,7 +110,10 @@ def enrich_and_rank_leads(
         kept = [(_evaluate_lead(lead, intent, allow_relaxed=True), lead) for lead in leads]
     if not kept:
         return []
-    kept.sort(key=lambda item: item[0].score, reverse=True)
+    if intent.vertical == "vehicle" and intent.sort == "price_asc":
+        kept.sort(key=lambda item: _vehicle_price_rank(item[0].score, item[1]))
+    else:
+        kept.sort(key=lambda item: item[0].score, reverse=True)
     enriched = [{**lead, "reason": ev.reason, "source": ev.source or None, "match_label": ev.match_label, "temperature": ev.temperature} for ev, lead in kept]
     if not apply_reason_enrichment or not is_openai_enabled():
         return enriched
@@ -540,6 +543,36 @@ def _render(reasons: list[str]) -> str:
     deduped = [reason for i, reason in enumerate(unique) if reason not in unique[:i]]
     text = ", ".join(deduped[:3]) or "aderencia basica ao pedido"
     return text[0].upper() + text[1:] + "."
+
+
+def _vehicle_price_rank(score: int, lead: dict[str, Any]) -> tuple[int, float, int]:
+    price = _price_to_number(str(lead.get("price") or ""))
+    if price is None:
+        return (1, float("inf"), -score)
+    return (0, price, -score)
+
+
+def _price_to_number(value: str) -> float | None:
+    normalized = str(value or "").strip().lower()
+    if not normalized or normalized == "sob consulta":
+        return None
+
+    digits = re.sub(r"[^\d,\.]", "", normalized)
+    if not digits:
+        return None
+
+    if "," in digits:
+        integer, decimal = digits.rsplit(",", 1)
+        integer = integer.replace(".", "")
+        decimal = re.sub(r"\D", "", decimal)[:2]
+        number = f"{integer}.{decimal or '0'}"
+    else:
+        number = digits.replace(".", "")
+
+    try:
+        return float(number)
+    except ValueError:
+        return None
 
 
 def _collapse(value: str) -> str:

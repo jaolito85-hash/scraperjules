@@ -23,6 +23,17 @@ def build_search_strategy(intent, limit: int) -> SearchStrategy:
     target = max(1, min(limit, 5))
 
     if intent.vertical == "vehicle":
+        if intent.goal == "find_cheapest":
+            return SearchStrategy(
+                vertical=intent.vertical,
+                goal=intent.goal,
+                layers=(
+                    RoutingLayer("automotive_primary", min_results=limit, min_priced_ratio=0.8),
+                    RoutingLayer("automotive_secondary", min_results=limit, min_priced_ratio=0.8),
+                    RoutingLayer("marketplace", min_results=limit, min_priced_ratio=0.7),
+                    RoutingLayer("fallback", min_results=limit, min_priced_ratio=0.7, use_broad_query=True),
+                ),
+            )
         return SearchStrategy(
             vertical=intent.vertical,
             goal=intent.goal,
@@ -76,4 +87,3 @@ def build_search_strategy(intent, limit: int) -> SearchStrategy:
             RoutingLayer("fallback", min_results=limit, min_priced_ratio=0.4, use_broad_query=True),
         ),
     )
-

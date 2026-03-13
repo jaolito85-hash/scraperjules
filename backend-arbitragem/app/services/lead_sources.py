@@ -12,6 +12,7 @@ from app.services.apify_service import (
 from app.services.mock_leads import build_mock_leads
 from app.services.openai_service import analyze_search_intent, enrich_and_rank_leads, resolve_pipeline_category
 from app.services.search_strategy import RoutingLayer, build_search_strategy
+from app.services.vehicle_intelligence import build_vehicle_queries, parse_vehicle_query
 
 
 def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
@@ -21,47 +22,49 @@ def search_leads(search_term: str, category: str, limit: int) -> list[dict]:
     intent = analyze_search_intent(search_term, category)
     pipeline_category = resolve_pipeline_category(intent)
     strategy = build_search_strategy(intent, limit)
+    fetch_limit = _fetch_limit(intent, limit)
     collected: list[dict[str, Any]] = []
     last_error: Exception | None = None
 
     for layer in strategy.layers:
-        query = _query_for_layer(intent, search_term, layer)
-        try:
-            collected = run_apify_layer(
-                query,
-                pipeline_category,
-                layer.actor_name,
-                limit,
-                intent=intent,
-                existing_leads=collected,
-            )
-        except (ApifyConfigurationError, ApifyRunFailedError, ApifyTimeoutError) as exc:
-            last_error = exc
-            continue
+        for query in _queries_for_layer(intent, search_term, layer):
+            try:
+                collected = run_apify_layer(
+                    query,
+                    pipeline_category,
+                    layer.actor_name,
+                    fetch_limit,
+                    intent=intent,
+                    existing_leads=collected,
+                )
+            except (ApifyConfigurationError, ApifyRunFailedError, ApifyTimeoutError) as exc:
+                last_error = exc
+                continue
 
-        ranked = enrich_and_rank_leads(
-            collected[:limit],
-            intent,
-            original_search_term=search_term,
-            category=pipeline_category,
-            apply_reason_enrichment=False,
-        )
-        if not _should_continue(layer, ranked, limit):
+            ranked = enrich_and_rank_leads(
+                collected[:fetch_limit],
+                intent,
+                original_search_term=search_term,
+                category=pipeline_category,
+                apply_reason_enrichment=False,
+            )
             collected = ranked
+
+        if _should_stop(intent, layer, collected, limit):
             break
-        collected = ranked
 
     if not collected:
         if isinstance(last_error, ApifyTimeoutError):
             raise last_error
         return []
 
-    return enrich_and_rank_leads(
-        collected[:limit],
+    ranked = enrich_and_rank_leads(
+        collected[:fetch_limit],
         intent,
         original_search_term=search_term,
         category=pipeline_category,
     )
+    return ranked[:limit]
 
 
 def _dedupe_queries(queries: list[str], *, fallback: str) -> list[str]:
@@ -79,6 +82,53 @@ def _query_for_layer(intent, search_term: str, layer: RoutingLayer) -> str:
     if layer.use_broad_query:
         return search_term
     return intent.primary_query or search_term
+
+
+def _queries_for_layer(intent, search_term: str, layer: RoutingLayer) -> list[str]:
+    if intent.vertical == "vehicle" and intent.goal == "find_cheapest":
+        vehicle = parse_vehicle_query(intent.original_search_term)
+        actor_queries = build_vehicle_queries(vehicle)
+        nationwide = " ".join(part for part in [vehicle.brand, vehicle.model, vehicle.year, "brasil"] if part).strip()
+        queries_by_layer = {
+            "automotive_primary": [
+                actor_queries.get("webmotors", ""),
+                nationwide,
+                search_term,
+            ],
+            "automotive_secondary": [
+                actor_queries.get("olx_cars", ""),
+                nationwide,
+                search_term,
+            ],
+            "marketplace": [
+                actor_queries.get("marketplace", ""),
+                nationwide,
+                search_term,
+            ],
+            "fallback": [
+                actor_queries.get("fallback", ""),
+                f"{vehicle.brand} {vehicle.model} {vehicle.year} olx" if vehicle.brand or vehicle.model else "",
+                f"{vehicle.brand} {vehicle.model} {vehicle.year} webmotors" if vehicle.brand or vehicle.model else "",
+                f"{vehicle.brand} {vehicle.model} {vehicle.year} mercado livre" if vehicle.brand or vehicle.model else "",
+                f"{vehicle.brand} {vehicle.model} {vehicle.year} icarros" if vehicle.brand or vehicle.model else "",
+                search_term,
+            ],
+        }
+        return _dedupe_queries([query for query in queries_by_layer.get(layer.actor_name, []) if query], fallback=search_term)
+
+    return [_query_for_layer(intent, search_term, layer)]
+
+
+def _fetch_limit(intent, limit: int) -> int:
+    if intent.vertical == "vehicle" and intent.goal == "find_cheapest":
+        return min(max(limit * 3, 24), 50)
+    return limit
+
+
+def _should_stop(intent, layer: RoutingLayer, ranked: list[dict[str, Any]], limit: int) -> bool:
+    if intent.vertical == "vehicle" and intent.goal == "find_cheapest":
+        return False
+    return not _should_continue(layer, ranked, limit)
 
 
 def _should_continue(layer: RoutingLayer, ranked: list[dict[str, Any]], limit: int) -> bool:

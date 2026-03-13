@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_APIFY_BASE_URL = "https://api.apify.com/v2"
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("APIFY_TIMEOUT_SECONDS", "120"))
+DEEP_AUTOMOTIVE_TIMEOUT_SECONDS = int(os.getenv("APIFY_AUTOMOTIVE_DEEP_TIMEOUT_SECONDS", "180"))
 DEFAULT_POLL_INTERVAL = float(os.getenv("APIFY_POLL_INTERVAL", "3"))
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
@@ -168,6 +169,13 @@ def _get_timeout_seconds() -> int:
     return int(os.getenv("APIFY_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
 
 
+def _context_timeout_seconds(context: SearchContext) -> int:
+    timeout = _get_timeout_seconds()
+    if context.category == "automotive" and str(getattr(context.intent, "goal", "") or "") == "find_cheapest":
+        return max(timeout, DEEP_AUTOMOTIVE_TIMEOUT_SECONDS)
+    return timeout
+
+
 def _get_poll_interval_seconds() -> float:
     return float(os.getenv("APIFY_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL)))
 
@@ -191,12 +199,12 @@ def _request(method: str, path: str, *, params: dict[str, Any] | None = None, js
     return payload if isinstance(payload, dict) else {"data": payload}
 
 
-def _start_actor_run(actor_id: str, actor_input: dict[str, Any]) -> str:
+def _start_actor_run(actor_id: str, actor_input: dict[str, Any], timeout_seconds: int) -> str:
     logger.info("Iniciando actor do Apify", extra={"actor_id": actor_id})
     payload = _request(
         "POST",
         f"/acts/{quote(actor_id, safe='')}/runs",
-        params={"memory": 2048, "timeout": _get_timeout_seconds()},
+        params={"memory": 2048, "timeout": timeout_seconds},
         json=actor_input,
     )
     run = payload.get("data") or {}
@@ -206,8 +214,7 @@ def _start_actor_run(actor_id: str, actor_input: dict[str, Any]) -> str:
     return str(run_id)
 
 
-def _wait_for_run(run_id: str) -> dict[str, Any]:
-    timeout_seconds = _get_timeout_seconds()
+def _wait_for_run(run_id: str, timeout_seconds: int) -> dict[str, Any]:
     poll_interval = _get_poll_interval_seconds()
     elapsed = 0.0
 
@@ -242,9 +249,9 @@ def _read_dataset_items(dataset_id: str, limit: int) -> list[dict[str, Any]]:
     return []
 
 
-def _run_actor(actor_id: str, actor_input: dict[str, Any], limit: int) -> list[dict[str, Any]]:
-    run_id = _start_actor_run(actor_id, actor_input)
-    run = _wait_for_run(run_id)
+def _run_actor(actor_id: str, actor_input: dict[str, Any], limit: int, timeout_seconds: int) -> list[dict[str, Any]]:
+    run_id = _start_actor_run(actor_id, actor_input, timeout_seconds)
+    run = _wait_for_run(run_id, timeout_seconds)
     dataset_id = run.get("defaultDatasetId")
     if not dataset_id:
         raise ApifyRunFailedError("O actor do Apify concluiu sem dataset de saida.")
@@ -632,9 +639,10 @@ def _build_google_places_input(context: SearchContext) -> dict[str, Any]:
 
 def _build_generic_query_input(context: SearchContext) -> dict[str, Any]:
     query = _source_search_term(context, "fallback")
+    is_deep_vehicle_search = context.category == "automotive" and str(getattr(context.intent, "goal", "") or "") == "find_cheapest"
     return {
         "queries": query,
-        "maxPagesPerQuery": 1,
+        "maxPagesPerQuery": 3 if is_deep_vehicle_search else 1,
         "resultsPerPage": max(_sanitize_limit(context.limit), DEFAULT_LIMIT),
         "mobileResults": False,
         "languageCode": "pt-BR",
@@ -660,14 +668,16 @@ def _build_webmotors_input(context: SearchContext) -> dict[str, Any]:
 def _build_olx_cars_input(context: SearchContext) -> dict[str, Any]:
     vehicle = _vehicle_query(context)
     source_query = _source_search_term(context, "olx_cars")
-    state = _infer_state(vehicle.location or context.search_term) or os.getenv("APIFY_OLX_DEFAULT_STATE", "SP")
-    city = _infer_city(vehicle.location)
+    national_cheapest = vehicle.goal == "find_cheapest" and canonical_location(vehicle.location) == "Brasil"
+    state = None if national_cheapest else (_infer_state(vehicle.location or context.search_term) or os.getenv("APIFY_OLX_DEFAULT_STATE", "SP"))
+    city = None if national_cheapest else _infer_city(vehicle.location)
     payload: dict[str, Any] = {
         "query": source_query,
         "searchTerm": source_query,
-        "state": state,
         "maxItems": _sanitize_limit(context.limit),
     }
+    if state:
+        payload["state"] = state
     if city:
         payload["city"] = city
     year = _infer_year(vehicle.year or context.search_term)
@@ -785,7 +795,7 @@ def _execute_candidate(candidate: ActorCandidate, context: SearchContext, actor_
         return []
 
     logger.info("Executando estrategia Apify", extra={"candidate": candidate.name, "actor_id": actor_id, "category": context.category})
-    raw_items = _run_actor(actor_id, actor_input, context.limit)
+    raw_items = _run_actor(actor_id, actor_input, context.limit, _context_timeout_seconds(context))
     return _normalize_items(raw_items, candidate.mode, context.search_term, context.category)
 
 
