@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable
 from urllib.parse import quote
 
 import httpx
+from app.services.vehicle_intelligence import build_vehicle_queries, canonical_location, parse_vehicle_query
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class SearchContext:
     search_term: str
     category: str
     limit: int
+    intent: Any | None = None
     existing_leads: tuple[dict[str, Any], ...] = ()
 
 
@@ -104,6 +106,7 @@ CATEGORY_PIPELINES: dict[str, list[ActorCandidate]] = {
     ],
     "service_demand": [
         ActorCandidate("service_demand_search", "APIFY_ACTOR_ID_SERVICE_DEMAND", "apify/google-search-scraper", "generic_query"),
+        ActorCandidate("service_demand_intent", "APIFY_ACTOR_ID_SERVICE_DEMAND_INTENT", None, "generic_query", optional=True),
         ActorCandidate("fallback", "APIFY_ACTOR_ID_FALLBACK", "apify/google-search-scraper", "generic_query"),
     ],
 }
@@ -387,7 +390,11 @@ def _normalize_common(
         "businessName",
         "description",
     )
-    normalized_title = _join_search_term(search_term, str(raw_title) if raw_title else None)
+    normalized_title = (
+        str(raw_title).strip()
+        if category == "automotive" and raw_title
+        else _join_search_term(search_term, str(raw_title) if raw_title else None)
+    )
     normalized_phone = phone if phone is not None else _pick_phone(item)
     normalized_email = email if email is not None else _pick_email(item)
     normalized_link = link if link is not None else _pick_link(item)
@@ -450,6 +457,15 @@ def _normalize_webmotors_item(item: dict[str, Any], search_term: str, category: 
 
 
 def _normalize_olx_item(item: dict[str, Any], search_term: str, category: str) -> dict[str, Any]:
+    title_parts = [
+        _first_non_empty(item, "title", "name"),
+        _first_non_empty(item, "brand"),
+        _first_non_empty(item, "model"),
+        _first_non_empty(item, "version"),
+        _first_non_empty(item, "year"),
+        _first_non_empty(item, "city"),
+        _first_non_empty(item, "state"),
+    ]
     seller_name = _first_non_empty(item, "sellerName", "ownerName", "owner", "userName")
     location = _first_non_empty(item, "location", "city", "state")
     reason = "Lead automotivo vindo de classificados."
@@ -459,6 +475,7 @@ def _normalize_olx_item(item: dict[str, Any], search_term: str, category: str) -
         item,
         search_term=search_term,
         category=category,
+        title=" ".join(str(part).strip() for part in title_parts if part),
         price_value=_first_non_empty(item, "price", "priceValue"),
         seller_name=seller_name,
         link=str(_pick_link(item) or ""),
@@ -491,10 +508,19 @@ def _normalize_real_estate_item(item: dict[str, Any], search_term: str, category
 
 
 def _normalize_marketplace_item(item: dict[str, Any], search_term: str, category: str) -> dict[str, Any]:
+    location = _first_non_empty(item, "city", "state", "location")
+    title_parts = [
+        _first_non_empty(item, "title", "name", "listingTitle"),
+        _first_non_empty(item, "brand"),
+        _first_non_empty(item, "model"),
+        _first_non_empty(item, "year"),
+        location,
+    ]
     return _normalize_common(
         item,
         search_term=search_term,
         category=category,
+        title=" ".join(str(part).strip() for part in title_parts if part),
         price_value=_first_non_empty(item, "price", "listingPrice", "amount"),
         seller_name=_first_non_empty(item, "sellerName", "ownerName", "name"),
         link=str(_pick_link(item) or ""),
@@ -545,7 +571,7 @@ def _dedupe_leads(leads: Iterable[dict[str, Any]], limit: int) -> list[dict[str,
 
 
 def _infer_state(search_term: str) -> str | None:
-    normalized = re.sub(r"[^a-zA-Z\s]", " ", search_term).lower()
+    normalized = re.sub(r"[^a-zA-Z\s]", " ", canonical_location(search_term)).lower()
     tokens = [token for token in normalized.split() if token]
     for token in tokens:
         if token in BRAZILIAN_STATES:
@@ -557,7 +583,8 @@ def _infer_state(search_term: str) -> str | None:
 
 
 def _infer_city(search_term: str) -> str | None:
-    parts = [part.strip() for part in re.split(r"[,/\-\n]+", search_term) if part.strip()]
+    location = canonical_location(search_term)
+    parts = [part.strip() for part in re.split(r"[,/\-\n]+", location) if part.strip()]
     if len(parts) >= 2:
         return parts[-1]
     return None
@@ -575,6 +602,23 @@ def _detect_transaction_type(search_term: str) -> str:
     return "sale"
 
 
+def _vehicle_query(context: SearchContext):
+    raw_search = str(getattr(context.intent, "original_search_term", "") or context.search_term)
+    return parse_vehicle_query(raw_search)
+
+
+def _source_search_term(context: SearchContext, mode: str) -> str:
+    if context.category != "automotive":
+        return context.search_term
+    intent_primary_query = str(getattr(context.intent, "primary_query", "") or "").strip()
+    if context.search_term and intent_primary_query and context.search_term.strip() != intent_primary_query:
+        return context.search_term
+    queries = build_vehicle_queries(_vehicle_query(context))
+    if mode in queries and queries[mode]:
+        return queries[mode]
+    return context.search_term
+
+
 def _build_google_places_input(context: SearchContext) -> dict[str, Any]:
     return {
         "searchStringsArray": [context.search_term],
@@ -587,8 +631,9 @@ def _build_google_places_input(context: SearchContext) -> dict[str, Any]:
 
 
 def _build_generic_query_input(context: SearchContext) -> dict[str, Any]:
+    query = _source_search_term(context, "fallback")
     return {
-        "queries": context.search_term,
+        "queries": query,
         "maxPagesPerQuery": 1,
         "resultsPerPage": max(_sanitize_limit(context.limit), DEFAULT_LIMIT),
         "mobileResults": False,
@@ -600,27 +645,32 @@ def _build_generic_query_input(context: SearchContext) -> dict[str, Any]:
 
 
 def _build_webmotors_input(context: SearchContext) -> dict[str, Any]:
-    query = quote(context.search_term)
+    vehicle = _vehicle_query(context)
+    source_query = _source_search_term(context, "webmotors")
+    route = "motos" if vehicle.vehicle_type == "motorcycle" else "carros"
+    query = quote(source_query)
     return {
-        "query": context.search_term,
-        "searchTerm": context.search_term,
+        "query": source_query,
+        "searchTerm": source_query,
         "maxItems": _sanitize_limit(context.limit),
-        "startUrls": [{"url": f"https://www.webmotors.com.br/carros/estoque?search={query}"}],
+        "startUrls": [{"url": f"https://www.webmotors.com.br/{route}/estoque?search={query}"}],
     }
 
 
 def _build_olx_cars_input(context: SearchContext) -> dict[str, Any]:
-    state = _infer_state(context.search_term) or os.getenv("APIFY_OLX_DEFAULT_STATE", "SP")
-    city = _infer_city(context.search_term)
+    vehicle = _vehicle_query(context)
+    source_query = _source_search_term(context, "olx_cars")
+    state = _infer_state(vehicle.location or context.search_term) or os.getenv("APIFY_OLX_DEFAULT_STATE", "SP")
+    city = _infer_city(vehicle.location)
     payload: dict[str, Any] = {
-        "query": context.search_term,
-        "searchTerm": context.search_term,
+        "query": source_query,
+        "searchTerm": source_query,
         "state": state,
         "maxItems": _sanitize_limit(context.limit),
     }
     if city:
         payload["city"] = city
-    year = _infer_year(context.search_term)
+    year = _infer_year(vehicle.year or context.search_term)
     if year:
         payload["yearFrom"] = year
         payload["yearTo"] = year
@@ -654,9 +704,10 @@ def _build_zap_imoveis_input(context: SearchContext) -> dict[str, Any]:
 
 
 def _build_marketplace_input(context: SearchContext) -> dict[str, Any]:
+    query = _source_search_term(context, "marketplace")
     return {
-        "searchTerm": context.search_term,
-        "query": context.search_term,
+        "searchTerm": query,
+        "query": query,
         "maxItems": _sanitize_limit(context.limit),
         "locale": "pt_BR",
     }
@@ -744,7 +795,46 @@ def _pipeline_for_category(category: str) -> list[ActorCandidate]:
     return [ActorCandidate("fallback", "APIFY_ACTOR_ID_FALLBACK", os.getenv("APIFY_ACTOR_ID", "").strip() or "apify/google-search-scraper", "generic_query")]
 
 
-def run_apify_search(search_term: str, category: str, limit: int) -> list[dict[str, Any]]:
+def _find_candidate(category: str, candidate_name: str) -> ActorCandidate:
+    for candidate in _pipeline_for_category(category):
+        if candidate.name == candidate_name:
+            return candidate
+    raise ApifyConfigurationError(f"Estrategia Apify desconhecida para {category}: {candidate_name}")
+
+
+def run_apify_layer(
+    search_term: str,
+    category: str,
+    candidate_name: str,
+    limit: int,
+    *,
+    intent: Any | None = None,
+    existing_leads: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    candidate = _find_candidate(category, candidate_name)
+    actor_id = _resolve_actor_id(candidate, category)
+    current_leads = list(existing_leads or [])
+    sanitized_limit = _sanitize_limit(limit)
+
+    if not actor_id:
+        if candidate.optional:
+            return current_leads[:sanitized_limit]
+        raise ApifyConfigurationError(f"Actor nao configurado para estrategia {candidate_name}.")
+
+    context = SearchContext(
+        search_term=search_term,
+        category=category,
+        limit=max(sanitized_limit - len(current_leads), 1) if not candidate.enrich else sanitized_limit,
+        intent=intent,
+        existing_leads=tuple(current_leads),
+    )
+    candidate_results = _execute_candidate(candidate, context, actor_id)
+    if candidate.enrich:
+        return _dedupe_leads(_merge_enrichment(current_leads, candidate_results), sanitized_limit)
+    return _dedupe_leads([*current_leads, *candidate_results], sanitized_limit)
+
+
+def run_apify_search(search_term: str, category: str, limit: int, *, intent: Any | None = None) -> list[dict[str, Any]]:
     sanitized_limit = _sanitize_limit(limit)
     pipeline = _pipeline_for_category(category)
     collected: list[dict[str, Any]] = []
@@ -760,6 +850,7 @@ def run_apify_search(search_term: str, category: str, limit: int) -> list[dict[s
             search_term=search_term,
             category=category,
             limit=max(sanitized_limit - len(collected), 1),
+            intent=intent,
             existing_leads=tuple(collected),
         )
 
