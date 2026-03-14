@@ -358,7 +358,8 @@ def is_vehicle_listing_result(link: str, query: VehicleQuery, *, source: str = "
         return "marketplace/item" in path
 
     if "webmotors" in host:
-        return "/estoque" not in path and "tabela-fipe" not in path
+        detail_markers = ("/comprar/", "/detalhe/", "/anuncio/", "/veiculo/")
+        return any(marker in path for marker in detail_markers) and bool(re.search(r"\d{4,}", path))
 
     if "olx.com.br" in host:
         return "/item/" in path or "/d/" in path or bool(re.search(r"-\d{6,}$", last_segment))
